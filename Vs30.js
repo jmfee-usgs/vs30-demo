@@ -1,6 +1,8 @@
 'use strict';
 
-var View = require('mvc/View'),
+var Collection = require('mvc/Collection'),
+    DataTable = require('mvc/DataTable'),
+    View = require('mvc/View'),
     Xhr = require('util/Xhr');
 
 
@@ -10,6 +12,7 @@ var Vs30 = function (options) {
       // variables
       _data,
       _dataLayer,
+      _dataTable,
       _layerControl,
       _map,
       _url,
@@ -20,17 +23,60 @@ var Vs30 = function (options) {
   _this = View(options);
 
   _initialize = function () {
-    _data = options.data || [];
+    _data = new Collection(options.data || []);
     _url = options.url;
-    _this.el.innerHTML = '<div class="map"></div>';
+    _this.el.innerHTML = '<div class="map"></div><div class="table"></div>';
     _map = L.map(_this.el.querySelector('.map'));
 
     _layerControl = L.control.layers().addTo(_map);
     L.control.scale().addTo(_map);
 
-    options = null;
+    _data.on('reset', _this.render);
     _addLayers();
-    _loadData();
+
+    _dataTable = new DataTable({
+      el: _this.el.querySelector('.table'),
+      collection: _data,
+      columns: [
+        {
+          className: 'id',
+          title: 'ID',
+          format: function (feature) {
+            return feature.id;
+          }
+        },
+        {
+          className: 'name',
+          title: 'Name',
+          format: function (feature) {
+            return feature.properties.name;
+          }
+        }
+      ],
+      sorts: [
+        {
+          id: 'byid',
+          title: 'ID',
+          sortBy: function (feature) {
+            return feature.id;
+          }
+        },
+        {
+          id: 'byname',
+          title: 'Name',
+          sortBy: function (feature) {
+            return feature.properties.name;
+          }
+        }
+      ]
+    });
+
+    if (options.data) {
+      _this.render();
+    } else {
+      _loadData();
+    }
+    options = null;
   };
 
   _addLayers = function () {
@@ -77,19 +123,25 @@ var Vs30 = function (options) {
   _loadData = function () {
     Xhr.ajax({
       url: _url,
-      success: function (data) {
-        _data = (typeof data === 'string' ? JSON.parse(data) : data);
-        _this.render();
+      success: function (geojson) {
+        geojson = (typeof geojson === 'string' ? JSON.parse(geojson) : geojson);
+        _data.reset(geojson.features);
       }
     });
   };
 
   _this.render = function () {
-    var bounds = new L.LatLngBounds();
+    var bounds = new L.LatLngBounds(),
+        data;
 
     _dataLayer.clearLayers();
 
-    _data.features.forEach(function (feature) {
+    data = _data.data();
+    if (data.length === 0) {
+      return;
+    }
+
+    data.forEach(function (feature) {
       var props = feature.properties,
           coords = feature.geometry.coordinates,
           latlng,
